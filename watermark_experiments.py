@@ -92,7 +92,7 @@ def parse_args():
     parser.add_argument(
         "--use_gpu",
         type=str2bool,
-        default=True,
+        default=False,
         help="Whether to run inference and watermark hashing/seeding/permutation on gpu.",
     )
     parser.add_argument(
@@ -225,27 +225,44 @@ def generate(prompt, args, model=None, device=None, tokenizer=None, watermark=Fa
             args) 
             # decoded_output_with_watermark)
 
+#def detect(input_text, args, device=None, tokenizer=None):
+#    """Instantiate the WatermarkDetection object and call detect on
+#        the input text returning the scores and outcome of the test"""
+#    watermark_detector = WatermarkDetector(vocab=list(tokenizer.get_vocab().values()),
+#                                        gamma=args.gamma,
+#                                        seeding_scheme=args.seeding_scheme,
+#                                        device=device,
+#                                        tokenizer=tokenizer,
+#                                        z_threshold=args.detection_z_threshold,
+#                                        normalizers=args.normalizers,
+#                                        ignore_repeated_bigrams=args.ignore_repeated_bigrams,
+#                                        select_green_tokens=args.select_green_tokens)
+#    if len(input_text)-1 > watermark_detector.min_prefix_len:
+#        score_dict = watermark_detector.detect(input_text)
+#        # output = str_format_scores(score_dict, watermark_detector.z_threshold)
+#        output = list_format_scores(score_dict, watermark_detector.z_threshold)
+#    else:
+#        # output = (f"Error: string not long enough to compute watermark presence.")
+#        output = [["Error","string too short to compute metrics"]]
+#        output += [["",""] for _ in range(6)]
+#    return output, args
+
 def detect(input_text, args, device=None, tokenizer=None, window_size=None, window_stride=None):
     """Instantiate the WatermarkDetection object and call detect on
         the input text returning the scores and outcome of the test"""
 
     watermark_detector = WatermarkDetector(vocab=list(tokenizer.get_vocab().values()),
-                                        gamma=args.gamma,
-                                        seeding_scheme=args.seeding_scheme,
-                                        device=device,
+                                        gamma=args.gamma, # should match original setting
+                                        seeding_scheme=args.seeding_scheme, # should match original setting
+                                        device=device, # must match the original rng device type
                                         tokenizer=tokenizer,
                                         z_threshold=args.detection_z_threshold,
                                         normalizers=args.normalizers,
-                                        ignore_repeated_bigrams=args.ignore_repeated_bigrams,
+                                        ignore_repeated_ngrams=args.ignore_repeated_bigrams,
                                         select_green_tokens=args.select_green_tokens)
-    if len(input_text)-1 > watermark_detector.min_prefix_len:
-        score_dict = watermark_detector.detect(input_text, window_size=window_size, window_stride=window_stride)
-        # output = str_format_scores(score_dict, watermark_detector.z_threshold)
-        output = list_format_scores(score_dict, watermark_detector.z_threshold)
-    else:
-        # output = (f"Error: string not long enough to compute watermark presence.")
-        output = [["Error","string too short to compute metrics"]]
-        output += [["",""] for _ in range(6)]
+    score_dict = watermark_detector.detect(input_text, window_size=window_size, window_stride=window_stride)
+    # output = str_format_scores(score_dict, watermark_detector.z_threshold)
+    output = list_format_scores(score_dict, watermark_detector.z_threshold)
     return output, args
 
 def load_model(args):
@@ -335,12 +352,12 @@ if __name__ == "__main__":
         inp, trunc, out, _ = generate(prompt, args, model, device, tokenizer, True, SYS1)
         
 
-        result_wm , _ = detect(out, args, device, tokenizer)
+        result_wm , _ = detect(out, args, device, tokenizer, "25,50", 1)
         result_wm = change_to_dict_w_keys(result_wm, "WM")
 
         inp2, trunc2, out2, _ = generate(out, args, model, device, tokenizer, False, SYS2)
 
-        result_p , _ = detect(out2, args, device, tokenizer)
+        result_p , _ = detect(out2, args, device, tokenizer, "25,50", 1)
         result_p = change_to_dict_w_keys(result_p, "Para")
 
         final = {"id":idx, **result_wm, **result_p, "wm_text":out, "p_text": out2}
