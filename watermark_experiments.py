@@ -342,27 +342,30 @@ if __name__ == "__main__":
     RES_FILE = open("results.json", "a")
     
     for idx, row in tqdm(prompts_df.iterrows()):
-        prompt = row.text    
-        SYS1 = "You are a redditor. Answer the questions with a university graduate level english. Don't give short answers. At least 4-5 sentences and 100 + words."
-        
-        SYS2 = "Paraphrase the following;"
-        
-        prompt = "How do you remove black rings under your eye from pulling all nighters?"
-        
-        inp, trunc, out, _ = generate(prompt, args, model, device, tokenizer, True, SYS1)
-        
+        try:
+            prompt = row.text    
+            SYS1 = "You are a redditor. Answer the questions with a university graduate level english. Don't give short answers. At least 4-5 sentences and 100 + words."
+            
+            SYS2 = "Paraphrase the following;"
+            
+            prompt = "How do you remove black rings under your eye from pulling all nighters?"
+            
+            inp, trunc, out, _ = generate(prompt, args, model, device, tokenizer, True, SYS1)
+            
 
-        result_wm , _ = detect(out, args, device, tokenizer, "25,50", 1)
-        result_wm = change_to_dict_w_keys(result_wm, "WM")
+            result_wm , _ = detect(out, args, device, tokenizer, "25,50", 1)
+            result_wm = change_to_dict_w_keys(result_wm, "WM")
 
-        inp2, trunc2, out2, _ = generate(out, args, model, device, tokenizer, False, SYS2)
+            inp2, trunc2, out2, _ = generate(out, args, model, device, tokenizer, False, SYS2)
 
-        result_p , _ = detect(out2, args, device, tokenizer, "25,50", 1)
-        result_p = change_to_dict_w_keys(result_p, "Para")
+            result_p , _ = detect(out2, args, device, tokenizer, "25,50", 1)
+            result_p = change_to_dict_w_keys(result_p, "Para")
 
-        final = {"id":idx, **result_wm, **result_p, "wm_text":out, "p_text": out2}
+            final = {"id":idx, **result_wm, **result_p, "wm_text":out, "p_text": out2}
 
-        with open("results.json", "a") as RES_FILE:
-            RES_FILE.write(json.dumps(final, default=str) + ",")
+            with open("results.json", "a") as RES_FILE:
+                RES_FILE.write(json.dumps(final, default=str) + ",")
+        except Exception as e:
+            print("ERROR:", e)
 
 
