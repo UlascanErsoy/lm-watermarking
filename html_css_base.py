@@ -60,7 +60,12 @@ SPINNER_CSS = """.lds-ellipsis {
   100% {
     transform: translate(24px, 0);
   }
-}"""
+}
+
+mark:hover {
+  border: 1px solid black;
+}
+"""
 
 CSS_BASE = "<style>" + "\n".join([SPINNER_CSS]) + "</style>"
 SPINNER = "<div class=\"lds-ellipsis\"><div></div><div></div><div></div><div></div></div>"

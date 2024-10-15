@@ -1,0 +1,87 @@
+<html>
+    <head>
+        <style>
+       </style>
+       <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+       <script src="data.json">
+       </script>
+       <style>
+        pre {
+            white-space: pre-wrap;       /* Since CSS 2.1 */
+            word-wrap: break-word;       /* Internet Explorer 5.5+ */
+        }
+        .token:hover {
+          border: 1px solid black;
+        }
+        .active-token {
+          border: 2px dashed red;
+        }
+       </style>
+    </head>
+    <body>
+      <div id="text">
+
+      </div>
+      <hr>
+      <div id="myplot"></div>
+
+      <script>
+        text_elem = document.getElementById("text");
+        plot_elem = document.getElementById("myplot");
+        
+        
+        const click_handler = (elem, idx) => {
+          const [entropy, token, probs] = RAW_DATA.probs[idx];
+          const p_tokens = probs.map(subArr => subArr[2]);
+          const pvals = probs.map(subArr => subArr[1]);
+          var data = [{
+            x: p_tokens, // X-axis labels
+            y: pvals,  // Y-axis values
+            type: 'bar'       // Specify bar chart type
+          }];
+
+          // Layout configuration for the chart
+          var layout = {
+            title: `PMF For ${token}, Entropy: ${entropy}`,
+            xaxis: {
+              title: 'Tokens'
+            },
+            yaxis: {
+              title: 'P Values'
+            }
+          };
+          
+          for(const el of document.getElementsByClassName("token"))
+          {
+            el.classList.remove("active-token");
+          }
+          elem.classList.add("active-token");
+          Plotly.newPlot('myplot', data, layout);
+
+        };
+        const render_text = () => {
+        let ntext = (' ' + RAW_DATA.text).slice(1);
+        let cursor = 0;
+
+          for (let idx = 0; idx < RAW_DATA.probs.length; idx++)
+          {
+            const [entropy, token, probs] = RAW_DATA.probs[idx];
+            
+            const token_start = ntext.indexOf(token, cursor);
+            const ent_threshold = entropy >= 0.5 ? 1.0 : 0.0;
+            
+            if (token_start > -1) {
+              const rep = `<span class="token" style="background-color: rgba(255,255,0, ${ent_threshold})" onclick="click_handler(this, ${idx})">${token}</span>`;
+              ntext = ntext.slice(0, token_start) + rep + ntext.slice(token_start + token.length);
+              cursor = token_start + rep.length;
+            }
+
+            text_elem.innerHTML = `<pre>${ntext}</pre>`
+          }
+        };
+
+        render_text();
+        //document.getElementById("text").innerHTML = `<pre>${data.text}</pre>`
+        </script>
+    </body>
+</html>
