@@ -81,7 +81,23 @@ class WatermarkBase:
             greenlist_ids = vocab_permutation[(self.vocab_size - greenlist_size) :]  # legacy behavior
         return greenlist_ids
 
+class EntropiesLogitsProcessor(LogitsProcessor):
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.entropies = []
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        """
+        """
+        probs = torch.softmax(scores, dim=-1)
+        ent = -torch.where(probs > 0, 
+                           probs * probs.log(), probs.new([0.0])
+                          ).sum(dim=-1)
+        self.entropies.append(ent)  
+
+        return scores
+        
 class WatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
     """LogitsProcessor modifying model output scores in a pipe. Can be used in any HF pipeline to modify scores to fit the watermark,
     but can also be used as a standalone tool inserted for any model producing scores inbetween model outputs and next token sampler.
@@ -92,6 +108,8 @@ class WatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
 
         self.store_spike_ents = store_spike_ents
         self.spike_entropies = None
+        self.entropies = []
+        
         if self.store_spike_ents:
             self._init_spike_entropies()
 
@@ -177,7 +195,8 @@ class WatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
         # NOTE, it would be nice to get rid of this batch loop, but currently,
         # the seed and partition operations are not tensor/vectorized, thus
         # each sequence in the batch needs to be treated separately.
-
+        # calculate entropy per token
+        
         list_of_greenlist_ids = [None for _ in input_ids]  # Greenlists could differ in length
         for b_idx, input_seq in enumerate(input_ids):
             if self.self_salt:
@@ -194,7 +213,7 @@ class WatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
 
         green_tokens_mask = self._calc_greenlist_mask(scores=scores, greenlist_token_ids=list_of_greenlist_ids)
         scores = self._bias_greenlist_logits(scores=scores, greenlist_mask=green_tokens_mask, greenlist_bias=self.delta)
-
+        
         return scores
 
 
@@ -231,6 +250,7 @@ class WatermarkDetector(WatermarkBase):
         self.device = device
         self.z_threshold = z_threshold
         self.rng = torch.Generator(device=self.device)
+        self.g_masks = []
 
         self.normalizers = []
         for normalization_strategy in normalizers:
@@ -286,7 +306,7 @@ class WatermarkDetector(WatermarkBase):
 
     def _compute_z_score(self, observed_count, T):
         # count refers to number of green tokens, T is total number of tokens
-        expected_count = self.gamma
+        expected_count = self.gamma # (?)
         numer = observed_count - expected_count * T
         denom = sqrt(T * expected_count * (1 - expected_count))
         z = numer / denom
@@ -326,7 +346,7 @@ class WatermarkDetector(WatermarkBase):
         """Generate binary list of green vs. red per token, a separate list that ignores repeated ngrams, and a list of offsets to
         convert between both representations:
         green_token_mask = green_token_mask_unique[offsets] except for all locations where otherwise a repeat would be counted
-        """
+        """        
         green_token_mask, green_token_mask_unique, offsets = [], [], []
         used_ngrams = {}
         unique_ngram_idx = 0
@@ -334,6 +354,8 @@ class WatermarkDetector(WatermarkBase):
 
         for idx, ngram_example in enumerate(ngram_examples):
             green_token_mask.append(ngram_to_watermark_lookup[ngram_example])
+            self.g_masks.append((ngram_example[-1], ngram_to_watermark_lookup[ngram_example]))
+            
             if self.ignore_repeated_ngrams:
                 if ngram_example in used_ngrams:
                     pass
@@ -345,6 +367,7 @@ class WatermarkDetector(WatermarkBase):
                 green_token_mask_unique.append(ngram_to_watermark_lookup[ngram_example])
                 unique_ngram_idx += 1
             offsets.append(unique_ngram_idx - 1)
+
         return (
             torch.tensor(green_token_mask),
             torch.tensor(green_token_mask_unique),
@@ -426,6 +449,7 @@ class WatermarkDetector(WatermarkBase):
 
         ngram_to_watermark_lookup, frequencies_table = self._score_ngrams_in_passage(input_ids)
         green_mask, green_ids, offsets = self._get_green_at_T_booleans(input_ids, ngram_to_watermark_lookup)
+
         len_full_context = len(green_ids)
 
         partial_sum_id_table = torch.cumsum(green_ids, dim=0)
@@ -624,3 +648,4 @@ def ngrams(sequence, n, pad_left=False, pad_right=False, pad_symbol=None):
         for _ in range(i):  # iterate through every order of ngrams
             next(sub_iterable, None)  # generate the ngrams within the window.
     return zip(*iterables)  # Unpack and flattens the iterables.
+
