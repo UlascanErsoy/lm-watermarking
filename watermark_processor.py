@@ -39,6 +39,7 @@ class WatermarkBase:
         seeding_scheme: str = "simple_1",  # mostly unused/always default
         hash_key: int = 15485863,  # just a large prime number to create a rng seed with sufficient bit width
         select_green_tokens: bool = True,
+        entropy_threshold: float = 0.0,
     ):
 
         # watermarking parameters
@@ -50,7 +51,8 @@ class WatermarkBase:
         self.rng = None
         self.hash_key = hash_key
         self.select_green_tokens = select_green_tokens
-
+        self.entropy_threshold = entropy_threshold
+        
     def _seed_rng(self, input_ids: torch.LongTensor, seeding_scheme: str = None) -> None:
         # can optionally override the seeding scheme,
         # but uses the instance attr by default
@@ -107,6 +109,7 @@ class WatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
         batched_greenlist_ids = [None for _ in range(input_ids.shape[0])]
 
         for b_idx in range(input_ids.shape[0]):
+            print(b_idx, input_ids[b_idx])
             greenlist_ids = self._get_greenlist_ids(input_ids[b_idx])
             batched_greenlist_ids[b_idx] = greenlist_ids
 
@@ -124,7 +127,7 @@ class WatermarkDetector(WatermarkBase):
         tokenizer: Tokenizer = None,
         z_threshold: float = 4.0,
         normalizers: list[str] = ["unicode"],  # or also: ["unicode", "homoglyphs", "truecase"]
-        ignore_repeated_bigrams: bool = True,
+        ignore_repeated_bigrams: bool = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -259,6 +262,7 @@ class WatermarkDetector(WatermarkBase):
                 "that was used at generation time.",
             )
             tokenized_text = self.tokenizer(text, return_tensors="pt", add_special_tokens=False)["input_ids"][0].to(self.device)
+            
             if tokenized_text[0] == self.tokenizer.bos_token_id:
                 tokenized_text = tokenized_text[1:]
         else:
@@ -268,6 +272,7 @@ class WatermarkDetector(WatermarkBase):
 
         # call score method
         output_dict = {}
+
         score_dict = self._score_sequence(tokenized_text, **kwargs)
         if return_scores:
             output_dict.update(score_dict)

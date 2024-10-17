@@ -5,8 +5,6 @@ from pprint import pprint
 from functools import partial
 
 import numpy # for gradio hot reload
-import gradio as gr
-
 import torch
 
 from transformers import (AutoTokenizer,
@@ -62,7 +60,7 @@ def parse_args():
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=500,
+        default=1000,
         help="Maximmum number of new tokens to generate.",
     )
     parser.add_argument(
@@ -92,7 +90,7 @@ def parse_args():
     parser.add_argument(
         "--use_gpu",
         type=str2bool,
-        default=False,
+        default=True,
         help="Whether to run inference and watermark hashing/seeding/permutation on gpu.",
     )
     parser.add_argument(
@@ -158,31 +156,91 @@ def parse_args():
     args = parser.parse_args()
     return args
     
-def generate(prompt, args, model=None, device=None, tokenizer=None, watermark=False, system_prompt=""):
+# def generate(prompt, args, model=None, device=None, tokenizer=None, watermark=False, system_prompt=""):
+#     """Instatiate the WatermarkLogitsProcessor according to the watermark parameters
+#        and generate watermarked text by passing it to the generate method of the model
+#        as a logits processor. """
+    
+#     print(f"Generating with {args}")
+
+#     watermark_processor = WatermarkLogitsProcessor(vocab=list(tokenizer.get_vocab().values()),
+#                                                     gamma=args.gamma,
+#                                                     delta=args.delta,
+#                                                     seeding_scheme=args.seeding_scheme,
+#                                                     select_green_tokens=args.select_green_tokens)
+
+#     gen_kwargs = dict(max_new_tokens=args.max_new_tokens)
+
+#     if args.use_sampling:
+#         gen_kwargs.update(dict(
+#             do_sample=True, 
+#             top_k=0,
+#             temperature=args.sampling_temp
+#         ))
+#     else:
+#         gen_kwargs.update(dict(
+#             num_beams=args.n_beams
+#         ))
+
+#     generate_without_watermark = partial(
+#         model.generate,
+#         **gen_kwargs
+#     )
+#     generate_with_watermark = partial(
+#         model.generate,
+#         logits_processor=LogitsProcessorList([watermark_processor]), 
+#         **gen_kwargs
+#     )
+#     if args.prompt_max_length:
+#         pass
+#     elif hasattr(model.config,"max_position_embedding"):
+#         args.prompt_max_length = model.config.max_position_embeddings-args.max_new_tokens
+#     else:
+#         args.prompt_max_length = 2048-args.max_new_tokens
+
+#     full_prompt = f"{system_prompt}\n\n{prompt}"
+    
+#     tokd_input = tokenizer(full_prompt, return_tensors="pt", add_special_tokens=True, truncation=True, max_length=args.prompt_max_length).to(device)
+#     truncation_warning = True if tokd_input["input_ids"].shape[-1] == args.prompt_max_length else False
+#     redecoded_input = tokenizer.batch_decode(tokd_input["input_ids"], skip_special_tokens=True)[0]
+
+#     torch.manual_seed(args.generation_seed)
+
+#     if not watermark:
+#         output = generate_without_watermark(**tokd_input)
+#     else:
+#         output = generate_with_watermark(**tokd_input)
+
+
+#     # need to isolate the newly generated tokens
+#     output = output[:,tokd_input["input_ids"].shape[-1]:]
+
+#     decoded_output = tokenizer.batch_decode(output, skip_special_tokens=True)[0]
+
+#     return (redecoded_input,
+#             int(truncation_warning),
+#             decoded_output,
+#             args) 
+#             # decoded_output_with_watermark)
+def generate(prompt, model=None, device=None, tokenizer=None, watermark=False, system_prompt=None):
     """Instatiate the WatermarkLogitsProcessor according to the watermark parameters
        and generate watermarked text by passing it to the generate method of the model
        as a logits processor. """
-    
-    print(f"Generating with {args}")
 
     watermark_processor = WatermarkLogitsProcessor(vocab=list(tokenizer.get_vocab().values()),
-                                                    gamma=args.gamma,
+                                                    gamma=args.gamme,
                                                     delta=args.delta,
                                                     seeding_scheme=args.seeding_scheme,
-                                                    select_green_tokens=args.select_green_tokens)
+                                                    select_green_tokens=True)
 
     gen_kwargs = dict(max_new_tokens=args.max_new_tokens)
 
-    if args.use_sampling:
-        gen_kwargs.update(dict(
-            do_sample=True, 
-            top_k=0,
-            temperature=args.sampling_temp
-        ))
-    else:
-        gen_kwargs.update(dict(
-            num_beams=args.n_beams
-        ))
+    gen_kwargs.update(dict(
+        do_sample=True, 
+        top_k=0,
+        temperature=sample_temp.value
+    ))
+
 
     generate_without_watermark = partial(
         model.generate,
@@ -190,23 +248,25 @@ def generate(prompt, args, model=None, device=None, tokenizer=None, watermark=Fa
     )
     generate_with_watermark = partial(
         model.generate,
-        logits_processor=LogitsProcessorList([watermark_processor]), 
+        # logits_processor=LogitsProcessorList([watermark_processor]), 
         **gen_kwargs
     )
-    if args.prompt_max_length:
-        pass
-    elif hasattr(model.config,"max_position_embedding"):
-        args.prompt_max_length = model.config.max_position_embeddings-args.max_new_tokens
+
+    if hasattr(model.config,"max_position_embedding"):
+        prompt_max_length = model.config.max_position_embeddings-max_new_tokens.value
     else:
-        args.prompt_max_length = 2048-args.max_new_tokens
+        prompt_max_length = 2048-max_new_tokens.value
 
-    full_prompt = f"{system_prompt}\n\n{prompt}"
+    if system_prompt:
+        full_prompt = f"{system_prompt}\n\n{prompt}"
+    else:
+        full_prompt = prompt
     
-    tokd_input = tokenizer(full_prompt, return_tensors="pt", add_special_tokens=True, truncation=True, max_length=args.prompt_max_length).to(device)
-    truncation_warning = True if tokd_input["input_ids"].shape[-1] == args.prompt_max_length else False
-    redecoded_input = tokenizer.batch_decode(tokd_input["input_ids"], skip_special_tokens=True)[0]
+    tokd_input = tokenizer(full_prompt, return_tensors="pt", add_special_tokens=True, truncation=True, max_length=prompt_max_length).to(device)
+    truncation_warning = True if tokd_input["input_ids"].shape[-1] == prompt_max_length else False
+    redecoded_input = tokenizer.batch_decode(tokd_input["input_ids"], skip_special_tokens=False)[0]
 
-    torch.manual_seed(args.generation_seed)
+    torch.manual_seed(gen_seed.value)
 
     if not watermark:
         output = generate_without_watermark(**tokd_input)
@@ -222,9 +282,7 @@ def generate(prompt, args, model=None, device=None, tokenizer=None, watermark=Fa
     return (redecoded_input,
             int(truncation_warning),
             decoded_output,
-            args) 
-            # decoded_output_with_watermark)
-
+            output) 
 #def detect(input_text, args, device=None, tokenizer=None):
 #    """Instantiate the WatermarkDetection object and call detect on
 #        the input text returning the scores and outcome of the test"""
@@ -247,7 +305,25 @@ def generate(prompt, args, model=None, device=None, tokenizer=None, watermark=Fa
 #        output += [["",""] for _ in range(6)]
 #    return output, args
 
-def detect(input_text, args, device=None, tokenizer=None, window_size=None, window_stride=None):
+# def detect(input_text, args, device=None, tokenizer=None, window_size=None, window_stride=None):
+#     """Instantiate the WatermarkDetection object and call detect on
+#         the input text returning the scores and outcome of the test"""
+
+#     watermark_detector = WatermarkDetector(vocab=list(tokenizer.get_vocab().values()),
+#                                         gamma=args.gamma, # should match original setting
+#                                         seeding_scheme=args.seeding_scheme, # should match original setting
+#                                         device=device, # must match the original rng device type
+#                                         tokenizer=tokenizer,
+#                                         z_threshold=args.detection_z_threshold,
+#                                         normalizers=args.normalizers,
+#                                         ignore_repeated_ngrams=args.ignore_repeated_bigrams,
+#                                         select_green_tokens=args.select_green_tokens)
+#     score_dict = watermark_detector.detect(input_text, window_size=window_size, window_stride=window_stride)
+#     # output = str_format_scores(score_dict, watermark_detector.z_threshold)
+#     output = list_format_scores(score_dict, watermark_detector.z_threshold)
+#     return output, args
+
+def detect(input_text, device=None, tokenizer=None, window_size=None, window_stride=None):
     """Instantiate the WatermarkDetection object and call detect on
         the input text returning the scores and outcome of the test"""
 
@@ -257,14 +333,14 @@ def detect(input_text, args, device=None, tokenizer=None, window_size=None, wind
                                         device=device, # must match the original rng device type
                                         tokenizer=tokenizer,
                                         z_threshold=args.detection_z_threshold,
-                                        normalizers=args.normalizers,
-                                        ignore_repeated_ngrams=args.ignore_repeated_bigrams,
-                                        select_green_tokens=args.select_green_tokens)
+                                        normalizers='',
+                                        ignore_repeated_ngrams=True,
+                                        select_green_tokens=True)
     score_dict = watermark_detector.detect(input_text, window_size=window_size, window_stride=window_stride)
     # output = str_format_scores(score_dict, watermark_detector.z_threshold)
     output = list_format_scores(score_dict, watermark_detector.z_threshold)
-    return output, args
-
+    return output, watermark_detector.g_masks
+    
 def load_model(args):
     """Load and return the model and tokenizer"""
 
@@ -332,40 +408,93 @@ def change_to_dict_w_keys(ll, suffix):
     return {
         f"{k[0]} ({suffix})":k[1] for k in ll
     }
+
+
+def color_decode_html(output, tokenizer, mask_map, sep=""):
+    """
+    """
+    result = []
+    green_color, red_color = "green", "red"
+    tcursor, cursor = 0,0
+    decoded_token = tokenizer.decode(mask_map[tcursor][0], skip_special_tokens=True)
+
+    
+    while cursor < len(output) and tcursor < len(mask_map) - 1:
+
+        if output[cursor] in (chr(32)):
+            result.append(output[cursor])
+            cursor += 1
+            continue
+        elif output[cursor] in ("\t", "\n", chr(10)):
+            cursor += 1
+            continue
+        
+        token_start = output.find(decoded_token, cursor - 1)
+        if token_start:
+
+            if mask_map[tcursor][1] is None:
+                result.append(decoded_token)
+            elif mask_map[tcursor][1]:
+                result.append(f"<mark style=\"background-color:{green_color}\">{decoded_token}</mark>")
+            else:
+                result.append(f"<mark style=\"background-color:{red_color}\">{decoded_token}</mark>")
+
+            cursor = token_start + len(decoded_token)
+            tcursor += 1
+            decoded_token = tokenizer.decode(mask_map[tcursor][0], skip_special_tokens=True)
+        else:
+            raise Exception(f"Should not be possible!! {decoded_token} not found!")
+
+    return sep.join(result)
     
 if __name__ == "__main__":
 
-    prompts_df = pd.read_csv("data/reddit_questions.csv",sep=";")
     args = parse_args()
     model, tokenizer, device = load_model(args)
 
     RES_FILE = open("results.json", "a")
+    print("===" * 15)
+    prompt = "Who is Barrack Obama?"
+    inp, trunc, out, _ = generate(prompt, args, model, device, tokenizer, True)
     
-    for idx, row in tqdm(prompts_df.iterrows()):
-        try:
-            prompt = row.text    
-            SYS1 = "You are a redditor. Answer the questions with a university graduate level english. Don't give short answers. At least 4-5 sentences and 100 + words."
+    print(prompt)
+    print("---" * 15)
+    print(out)
+
+    result_wm , g_masks = detect(out, device, tokenizer)
+    result_wm = change_to_dict_w_keys(result_wm, "WM")
+    print(result_wm)
+
+    open("test.html","w").write(color_decode_html(out, tokenizer, g_masks))
+    
+#     for idx, row in tqdm(prompts_df.iterrows()):
+# #########        try:
+#             prompt = row.text    
+#             SYS1 = "You are a redditor. Answer the questions with a university graduate level english. Don't give short answers. At least 4-5 sentences and 100 + words."
             
-            SYS2 = "Paraphrase the following;"
+#             SYS2 = "Paraphrase the following;\n\n"
             
-            prompt = "How do you remove black rings under your eye from pulling all nighters?"
+#             print("===" * 15)
+#             inp, trunc, out, _ = generate(prompt, args, model, device, tokenizer, True, SYS1)
             
-            inp, trunc, out, _ = generate(prompt, args, model, device, tokenizer, True, SYS1)
-            
+#             print(prompt)
+#             print("---" * 15)
+#             print(out)
 
-            result_wm , _ = detect(out, args, device, tokenizer, "25,50", 1)
-            result_wm = change_to_dict_w_keys(result_wm, "WM")
+#             result_wm , _ = detect(out, args, device, tokenizer, "25,50", 1)
+#             result_wm = change_to_dict_w_keys(result_wm, "WM")
 
-            inp2, trunc2, out2, _ = generate(out, args, model, device, tokenizer, False, SYS2)
+#             inp2, trunc2, out2, _ = generate(out[:200], args, model, device, tokenizer, False, SYS2)
 
-            result_p , _ = detect(out2, args, device, tokenizer, "25,50", 1)
-            result_p = change_to_dict_w_keys(result_p, "Para")
+#             print("---" * 15)
+#             print(out2)
+#             result_p , _ = detect(out2, args, device, tokenizer, "25,50", 1)
+#             result_p = change_to_dict_w_keys(result_p, "Para")
 
-            final = {"id":idx, **result_wm, **result_p, "wm_text":out, "p_text": out2}
+#             final = {"id":idx, **result_wm, **result_p, "wm_text":out, "p_text": out2}
 
-            with open("results.json", "a") as RES_FILE:
-                RES_FILE.write(json.dumps(final, default=str) + ",")
-        except Exception as e:
-            print("ERROR:", e)
+#             with open("results.json", "a") as RES_FILE:
+#                 RES_FILE.write(json.dumps(final, default=str) + ",")
+#        except Exception as e:
 
 

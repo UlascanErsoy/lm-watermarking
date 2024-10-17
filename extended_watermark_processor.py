@@ -86,15 +86,25 @@ class EntropiesLogitsProcessor(LogitsProcessor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.entropies = []
+        self._topk: int = kwargs.get("topk", 15) 
+        self.topks = []
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         """
         """
         probs = torch.softmax(scores, dim=-1)
+        topks = torch.topk(probs, k=self._topk)
+
+
+        self.topks.append(list(zip(topks.indices.tolist()[0], 
+                                    topks.values.tolist()[0],
+                                    [None] * self._topk
+                                    )))
+
         ent = -torch.where(probs > 0, 
                            probs * probs.log(), probs.new([0.0])
                           ).sum(dim=-1)
-        self.entropies.append(ent)  
+        self.entropies.append(ent)
 
         return scores
         
@@ -109,6 +119,8 @@ class WatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
         self.store_spike_ents = store_spike_ents
         self.spike_entropies = None
         self.entropies = []
+        self.topks = []
+        self._topk = 20
         
         if self.store_spike_ents:
             self._init_spike_entropies()
@@ -196,7 +208,9 @@ class WatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
         # the seed and partition operations are not tensor/vectorized, thus
         # each sequence in the batch needs to be treated separately.
         # calculate entropy per token
-        
+        probs = torch.softmax(scores, dim=-1)
+        topks = torch.topk(probs, k=self._topk)
+
         list_of_greenlist_ids = [None for _ in input_ids]  # Greenlists could differ in length
         for b_idx, input_seq in enumerate(input_ids):
             if self.self_salt:
@@ -213,6 +227,13 @@ class WatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
 
         green_tokens_mask = self._calc_greenlist_mask(scores=scores, greenlist_token_ids=list_of_greenlist_ids)
         scores = self._bias_greenlist_logits(scores=scores, greenlist_mask=green_tokens_mask, greenlist_bias=self.delta)
+
+        probs = torch.softmax(scores, dim=-1)
+        ind = topks.indices.tolist()[0]
+        self.topks.append(list(zip(topks.indices.tolist()[0], 
+                                    topks.values.tolist()[0],
+                                    probs[0][ind].tolist()
+                                    )))
         
         return scores
 
@@ -251,6 +272,7 @@ class WatermarkDetector(WatermarkBase):
         self.z_threshold = z_threshold
         self.rng = torch.Generator(device=self.device)
         self.g_masks = []
+        self.green_red = []
 
         self.normalizers = []
         for normalization_strategy in normalizers:
@@ -355,6 +377,8 @@ class WatermarkDetector(WatermarkBase):
         for idx, ngram_example in enumerate(ngram_examples):
             green_token_mask.append(ngram_to_watermark_lookup[ngram_example])
             self.g_masks.append((ngram_example[-1], ngram_to_watermark_lookup[ngram_example]))
+            prefix = ngram_example if self.self_salt else ngram_example[:-1]
+            self.green_red.append(self._get_greenlist_ids(torch.as_tensor(prefix, device=self.device)))
             
             if self.ignore_repeated_ngrams:
                 if ngram_example in used_ngrams:

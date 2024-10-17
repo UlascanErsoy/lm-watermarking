@@ -32,13 +32,25 @@
         
         const click_handler = (elem, idx) => {
           const [entropy, token, probs] = RAW_DATA.probs[idx];
-          const p_tokens = probs.map(subArr => subArr[2]);
+          const p_tokens = probs.map(subArr => `${subArr[3]} (${subArr[0]})`);
           const pvals = probs.map(subArr => subArr[1]);
+          const pvals_boosted = probs.map(subArr => subArr[2]);
+          const redgreen = probs.map(subArr => subArr[4]? 'green': 'red');
+
+          console.log(probs);
           var data = [{
             x: p_tokens, // X-axis labels
             y: pvals,  // Y-axis values
+            marker:{
+              color:redgreen
+            },
             type: 'bar'       // Specify bar chart type
           }];
+
+          const frames = [
+            {name: 'normal', data: [{x: p_tokens, y: pvals}]},
+            {name: 'boosted', data: [{x: p_tokens, y: pvals_boosted}]}
+          ]
 
           // Layout configuration for the chart
           var layout = {
@@ -47,8 +59,22 @@
               title: 'Tokens'
             },
             yaxis: {
-              title: 'P Values'
-            }
+              title: 'Probability'
+            },
+            updatemenus: [{
+              buttons:[
+                {
+                  method: "animate",
+                  label: "Normal",
+                  args: [['normal']]
+                },
+                {
+                  method: "animate",
+                  label: "Boosted",
+                  args:[['boosted']]
+                }
+              ]
+            }]
           };
           
           for(const el of document.getElementsByClassName("token"))
@@ -56,7 +82,10 @@
             el.classList.remove("active-token");
           }
           elem.classList.add("active-token");
-          Plotly.newPlot('myplot', data, layout);
+          Plotly.newPlot('myplot', data, layout)
+                .then(function() {
+                  Plotly.addFrames('myplot', frames)
+                });
 
         };
         const render_text = () => {
@@ -75,7 +104,7 @@
               ntext = ntext.slice(0, token_start) + rep + ntext.slice(token_start + token.length);
               cursor = token_start + rep.length;
             }
-
+            
             text_elem.innerHTML = `<pre>${ntext}</pre>`
           }
         };
